@@ -2157,6 +2157,8 @@ class BaseSDTrainProcess(BaseTrainProcess):
                 self.torch_profiler.start()
             did_oom = False
             loss_dict = None
+            if optimizer_type.endswith("schedulefree"):
+                optimizer.train()
             try:
                 with self.accelerator.accumulate(self.modules_being_trained):
                     loss_dict = self.hook_train_loop(batch_list)
@@ -2167,6 +2169,8 @@ class BaseSDTrainProcess(BaseTrainProcess):
                     did_oom = True
                 else:
                     raise  # not an OOM; surface real errors
+            if optimizer_type.endswith("schedulefree"):
+                optimizer.eval()
             if did_oom:
                 self.num_consecutive_oom += 1
                 if self.num_consecutive_oom > 3:
@@ -2214,7 +2218,12 @@ class BaseSDTrainProcess(BaseTrainProcess):
                     else:
                         learning_rate = optimizer.param_groups[0]['lr']
 
-                    prog_bar_string = f"lr: {learning_rate:.1e}"
+                    prog_bar_string = f"lr1: {learning_rate:.1e}"
+                    if self.train_config.train_text_encoder and len(optimizer.param_groups) > 1:
+                        if self.train_config.optimizer.lower().startswith('dadaptation') or self.train_config.optimizer.lower().startswith('prodigy'):
+                            prog_bar_string += f" lr2: {optimizer.param_groups[1]['d'] * optimizer.param_groups[1]['lr']:.1e}"
+                        else:
+                            prog_bar_string += f" lr2: {optimizer.param_groups[1]['lr']:.1e}"
                     for key, value in loss_dict.items():
                         prog_bar_string += f" {key}: {value:.3e}"
 

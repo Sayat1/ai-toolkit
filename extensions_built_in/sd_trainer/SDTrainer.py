@@ -57,7 +57,10 @@ class SDTrainer(BaseSDTrainProcess):
         super().__init__(process_id, job, config, **kwargs)
         self.assistant_adapter: Union['T2IAdapter', 'ControlNetModel', None]
         self.do_prior_prediction = False
-        self.do_long_prompts = False
+        if self.model_config.is_xl:
+            self.do_long_prompts = True
+        else:
+            self.do_long_prompts = False
         self.do_guided_loss = False
         self.taesd: Optional[AutoencoderTiny] = None
 
@@ -1523,6 +1526,9 @@ class SDTrainer(BaseSDTrainProcess):
 
                     elif grad_on_text_encoder:
                         with torch.set_grad_enabled(True):
+                            # 원래는 안하는게 맞는데 안하면 grad가 없어짐.
+                            for te in self.sd.text_encoder:
+                                te.requires_grad_(True)
                             if isinstance(self.adapter, CustomAdapter):
                                 self.adapter.is_unconditional_run = False
                             conditional_embeds = self.sd.encode_prompt(
@@ -2064,7 +2070,7 @@ class SDTrainer(BaseSDTrainProcess):
 
         if not self.is_grad_accumulation_step:
             # fix this for multi params
-            if self.train_config.optimizer != 'adafactor':
+            if self.train_config.optimizer != 'adafactor' and self.train_config.max_grad_norm != 0.0:
                 if isinstance(self.params[0], dict):
                     for i in range(len(self.params)):
                         self.accelerator.clip_grad_norm_(self.params[i]['params'], self.train_config.max_grad_norm)

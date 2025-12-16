@@ -138,12 +138,12 @@ class LoRAModule(ToolkitModuleMixin, ExtractableModuleMixin, torch.nn.Module):
 class LoRASpecialNetwork(ToolkitNetworkMixin, LoRANetwork):
     NUM_OF_BLOCKS = 12  # フルモデル相当でのup,downの層の数
 
-    # UNET_TARGET_REPLACE_MODULE = ["Transformer2DModel"]
-    # UNET_TARGET_REPLACE_MODULE = ["Transformer2DModel", "ResnetBlock2D"]
+    #UNET_TARGET_REPLACE_MODULE = ["Transformer2DModel"]
+    #UNET_TARGET_REPLACE_MODULE = ["Transformer2DModel", "ResnetBlock2D"]
     UNET_TARGET_REPLACE_MODULE = ["UNet2DConditionModel"]
-    # UNET_TARGET_REPLACE_MODULE_CONV2D_3X3 = ["ResnetBlock2D", "Downsample2D", "Upsample2D"]
+    #UNET_TARGET_REPLACE_MODULE_CONV2D_3X3 = ["ResnetBlock2D", "Downsample2D", "Upsample2D"]
     UNET_TARGET_REPLACE_MODULE_CONV2D_3X3 = ["UNet2DConditionModel"]
-    TEXT_ENCODER_TARGET_REPLACE_MODULE = ["CLIPAttention", "CLIPMLP"]
+    TEXT_ENCODER_TARGET_REPLACE_MODULE = ["CLIPAttention", "CLIPMLP", "CLIPSdpaAttention"]
     LORA_PREFIX_UNET = "lora_unet"
     PEFT_PREFIX_UNET = "unet"
     LORA_PREFIX_TEXT_ENCODER = "lora_te"
@@ -299,6 +299,10 @@ class LoRASpecialNetwork(ToolkitNetworkMixin, LoRANetwork):
             if self.conv_lora_dim is not None:
                 print(
                     f"apply LoRA to Conv2d with kernel size (3,3). dim (rank): {self.conv_lora_dim}, alpha: {self.conv_alpha}")
+                
+        if self.is_sdxl:
+            UNET_TARGET_REPLACE_MODULE = ["Transformer2DModel"]
+            UNET_TARGET_REPLACE_MODULE_CONV2D_3X3 = ["ResnetBlock2D", "Downsample2D", "Upsample2D"]
 
         # create module instances
         def create_modules(

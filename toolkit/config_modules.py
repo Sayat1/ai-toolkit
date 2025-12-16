@@ -195,14 +195,17 @@ class NetworkConfig:
             if self.lorm_config.do_conv:
                 self.conv = 4
 
+        if self.conv is not None and self.conv == 0.0:
+            self.conv = None
         self.transformer_only = kwargs.get('transformer_only', True)
         
         self.lokr_full_rank = kwargs.get('lokr_full_rank', False)
         if self.lokr_full_rank and self.type.lower() == 'lokr':
             self.linear = 9999999999
             self.linear_alpha = 9999999999
-            self.conv = 9999999999
-            self.conv_alpha = 9999999999
+            if self.conv is not None and self.conv > 0:
+                self.conv = 9999999999
+                self.conv_alpha = 9999999999
         # -1 automatically finds the largest factor
         self.lokr_factor = kwargs.get('lokr_factor', -1)
         
