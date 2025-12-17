@@ -2984,7 +2984,7 @@ class StableDiffusion:
             self.unet.train()
         else:
             self.unet.eval()
-        self.unet.to(state['unet']['device'])
+        self.unet.to("cuda")
         if state['unet']['requires_grad']:
             self.unet.requires_grad_(True)
         else:
@@ -2996,21 +2996,21 @@ class StableDiffusion:
                         encoder.train()
                     else:
                         encoder.eval()
-                    encoder.to(state['text_encoder'][i]['device'])
+                    encoder.to("cuda")
                     encoder.requires_grad_(state['text_encoder'][i]['requires_grad'])
                 else:
                     if state['text_encoder']['training']:
                         encoder.train()
                     else:
                         encoder.eval()
-                    encoder.to(state['text_encoder']['device'])
+                    encoder.to("cuda")
                     encoder.requires_grad_(state['text_encoder']['requires_grad'])
         else:
             if state['text_encoder']['training']:
                 self.text_encoder.train()
             else:
                 self.text_encoder.eval()
-            self.text_encoder.to(state['text_encoder']['device'])
+            self.text_encoder.to("cuda")
             self.text_encoder.requires_grad_(state['text_encoder']['requires_grad'])
 
         if self.adapter is not None:
