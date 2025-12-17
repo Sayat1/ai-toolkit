@@ -1526,9 +1526,6 @@ class SDTrainer(BaseSDTrainProcess):
 
                     elif grad_on_text_encoder:
                         with torch.set_grad_enabled(True):
-                            # 원래는 안하는게 맞는데 안하면 grad가 없어짐.
-                            for te in self.sd.text_encoder:
-                                te.requires_grad_(True)
                             if isinstance(self.adapter, CustomAdapter):
                                 self.adapter.is_unconditional_run = False
                             conditional_embeds = self.sd.encode_prompt(

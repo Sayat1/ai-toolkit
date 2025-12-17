@@ -1663,6 +1663,7 @@ class BaseSDTrainProcess(BaseTrainProcess):
         else:
             text_encoder.requires_grad_(False)
             text_encoder.eval()
+
         unet.to(self.device_torch, dtype=dtype)
         unet.requires_grad_(False)
         unet.eval()
@@ -2053,6 +2054,16 @@ class BaseSDTrainProcess(BaseTrainProcess):
 
         # make sure all params require grad
         self.ensure_params_requires_grad(force=True)
+
+        #안하면 train text encoder가 grad 안생김
+        #TODO: 위에쓰면 좋은데, 중간에 변형을하는지 위에쓰면 False로 돌아가서 loop직전에 씀.
+        if self.train_config.train_text_encoder:
+            if isinstance(text_encoder, list):
+                for te in text_encoder:
+                    te.text_model.embeddings.requires_grad_(True)
+            else:
+                text_encoder.text_model.embeddings.requires_grad_(True)
+            
 
 
         ###################################################################
