@@ -2060,9 +2060,12 @@ class BaseSDTrainProcess(BaseTrainProcess):
         if self.train_config.train_text_encoder:
             if isinstance(text_encoder, list):
                 for te in text_encoder:
+                    te.train()
                     te.text_model.embeddings.requires_grad_(True)
             else:
+                text_encoder.train()
                 text_encoder.text_model.embeddings.requires_grad_(True)
+            unet.train()
             
 
 
