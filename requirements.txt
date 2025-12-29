@@ -12,7 +12,7 @@ invisible-watermark
 einops
 accelerate
 toml
-albumentations==1.4.15
+albumentations
 albucore==0.0.16
 pydantic
 omegaconf
