@@ -36,6 +36,7 @@ scheduler_config = {
     "shift": 3.0,
 }
 
+HF_TOKEN = os.getenv("HF_TOKEN", None)
 
 class ZImageModel(BaseModel):
     arch = "zimage"
@@ -167,8 +168,9 @@ class ZImageModel(BaseModel):
                 base_model_path = model_path
 
         transformer = ZImageTransformer2DModel.from_pretrained(
-            transformer_path, subfolder=transformer_subfolder, torch_dtype=dtype
+            transformer_path, subfolder=transformer_subfolder, torch_dtype=dtype, token=HF_TOKEN,
         )
+        self.print_and_status_update(f"Transformer loaded from {transformer_path}")
 
         # load assistant lora if specified
         if self.model_config.assistant_lora_path is not None:
