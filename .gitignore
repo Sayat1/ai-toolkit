@@ -186,3 +186,4 @@ aitk_db.db
 /data
 *.yaml
 .claude
+run_modal.py
