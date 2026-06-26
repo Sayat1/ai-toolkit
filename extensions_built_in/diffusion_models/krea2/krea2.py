@@ -191,7 +191,7 @@ class Krea2Model(BaseModel):
             self.model_config.model_kwargs.get("checkpoint_filename", None),
         )
         state_dict = {
-            k: (v.to(dtype) if v.is_floating_point() else v)
+            k.replace("model.diffusion_model.", ""): (v.to(dtype) if v.is_floating_point() else v)
             for k, v in state_dict.items()
         }
         self.print_and_status_update("  - loading transformer state dict")
