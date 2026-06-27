@@ -206,6 +206,7 @@ def _import_comfy_quant_ops(comfy_path: Optional[str]):
         comfy_path = os.path.abspath(os.path.expanduser(comfy_path))
         if comfy_path not in sys.path:
             sys.path.insert(0, comfy_path)
+            print(f"{comfy_path} added to syspath")
 
     try:
         import comfy.quant_ops as quant_ops
