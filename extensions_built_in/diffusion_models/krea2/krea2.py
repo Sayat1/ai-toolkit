@@ -233,6 +233,7 @@ def _dequantize_comfy_weight(
         raise ValueError(f"Unsupported ComfyUI quantization format: {quant_format}")
 
     qconfig = quant_ops.QUANT_ALGOS[quant_format]
+    print(f"qconfig:{qconfig}")
     layout_type = qconfig["comfy_tensor_layout"]
     layout_cls = quant_ops.get_layout_class(layout_type)
 
