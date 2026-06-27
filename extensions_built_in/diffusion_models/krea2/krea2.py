@@ -206,7 +206,6 @@ def _import_comfy_quant_ops(comfy_path: Optional[str]):
         comfy_path = os.path.abspath(os.path.expanduser(comfy_path))
         if comfy_path not in sys.path:
             sys.path.insert(0, comfy_path)
-            print(f"{comfy_path} added to syspath")
 
     try:
         import comfy.quant_ops as quant_ops
@@ -233,7 +232,6 @@ def _dequantize_comfy_weight(
         raise ValueError(f"Unsupported ComfyUI quantization format: {quant_format}")
 
     qconfig = quant_ops.QUANT_ALGOS[quant_format]
-    print(f"qconfig:{qconfig}")
     layout_type = qconfig["comfy_tensor_layout"]
     layout_cls = quant_ops.get_layout_class(layout_type)
 
