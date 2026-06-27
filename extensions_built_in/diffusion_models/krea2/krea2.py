@@ -14,6 +14,8 @@ target = noise - clean), so ``get_noise_prediction`` does no time flip / negatio
 """
 
 import os
+import json
+import sys
 from typing import List, Optional
 
 import torch
@@ -131,6 +133,180 @@ def _load_mmdit_state_dict(name_or_path: str, filename: Optional[str]) -> dict:
     return load_file(path)
 
 
+def _krea2_diffusers_to_ai_toolkit_map(mmdit_config: dict) -> dict[str, str]:
+    """Map Krea2 diffusers-style transformer keys to this module's raw keys.
+
+    This mirrors ComfyUI's ``comfy.utils.krea2_to_diffusers`` mapping, whose
+    values are the native Krea2 module names used by ``SingleStreamDiT`` here.
+    """
+    n_layers = mmdit_config.get("layers", 0)
+    key_map = {}
+
+    def add_block(prefix_to, prefix_from):
+        block_map = {
+            "attn.to_q": "attn.wq",
+            "attn.to_k": "attn.wk",
+            "attn.to_v": "attn.wv",
+            "attn.to_gate": "attn.gate",
+            "attn.to_out.0": "attn.wo",
+            "attn.to_out": "attn.wo",
+            "ff.gate": "mlp.gate",
+            "ff.up": "mlp.up",
+            "ff.down": "mlp.down",
+        }
+        for diffusers_name, native_name in block_map.items():
+            key_map[f"{prefix_to}.{diffusers_name}.weight"] = (
+                f"{prefix_from}.{native_name}.weight"
+            )
+
+    for i in range(n_layers):
+        add_block(f"transformer_blocks.{i}", f"blocks.{i}")
+    for i in range(2):
+        add_block(f"text_fusion.layerwise_blocks.{i}", f"txtfusion.layerwise_blocks.{i}")
+    for i in range(2):
+        add_block(f"text_fusion.refiner_blocks.{i}", f"txtfusion.refiner_blocks.{i}")
+
+    for diffusers_name, native_name in [
+        ("img_in", "first"),
+        ("time_embed.linear_1", "tmlp.0"),
+        ("time_embed.linear_2", "tmlp.2"),
+        ("time_mod_proj", "tproj.1"),
+        ("txt_in.linear_1", "txtmlp.1"),
+        ("txt_in.linear_2", "txtmlp.3"),
+        ("text_fusion.projector", "txtfusion.projector"),
+        ("final_layer.linear", "last.linear"),
+    ]:
+        key_map[f"{diffusers_name}.weight"] = f"{native_name}.weight"
+
+    return key_map
+
+
+def _decode_comfy_quant(conf: torch.Tensor) -> dict:
+    return json.loads(bytes(conf.cpu().numpy().tolist()).decode("utf-8"))
+
+
+def _normalize_krea2_checkpoint_key(key: str, diffusers_key_map: dict[str, str]) -> str:
+    for prefix in ("diffusion_model.", "model.diffusion_model.", "transformer."):
+        if key.startswith(prefix):
+            key = key[len(prefix):]
+            break
+
+    for suffix in (".weight", ".weight_scale", ".weight_scale_2", ".input_scale", ".comfy_quant"):
+        if not key.endswith(suffix):
+            continue
+        base_weight_key = key[: -len(suffix)] + ".weight"
+        if base_weight_key in diffusers_key_map:
+            native_weight_key = diffusers_key_map[base_weight_key]
+            return native_weight_key[: -len(".weight")] + suffix
+    return key
+
+
+def _import_comfy_quant_ops(comfy_path: Optional[str]):
+    if comfy_path:
+        comfy_path = os.path.abspath(os.path.expanduser(comfy_path))
+        if comfy_path not in sys.path:
+            sys.path.insert(0, comfy_path)
+
+    try:
+        import comfy.quant_ops as quant_ops
+    except ImportError as e:
+        raise ImportError(
+            "This checkpoint contains ComfyUI '.comfy_quant' weights. Install/import "
+            "ComfyUI with comfy_kitchen available, or set "
+            "model.model_kwargs.comfy_path to the ComfyUI project directory."
+        ) from e
+    return quant_ops
+
+
+def _dequantize_comfy_weight(
+    weight: torch.Tensor,
+    conf: dict,
+    scales: dict[str, torch.Tensor],
+    orig_shape: torch.Size,
+    dtype: torch.dtype,
+    comfy_path: Optional[str],
+) -> torch.Tensor:
+    quant_ops = _import_comfy_quant_ops(comfy_path)
+    quant_format = conf.get("format", None)
+    if quant_format not in quant_ops.QUANT_ALGOS:
+        raise ValueError(f"Unsupported ComfyUI quantization format: {quant_format}")
+
+    qconfig = quant_ops.QUANT_ALGOS[quant_format]
+    layout_type = qconfig["comfy_tensor_layout"]
+    layout_cls = quant_ops.get_layout_class(layout_type)
+
+    if quant_format in ("float8_e4m3fn", "float8_e5m2"):
+        params = {"scale": scales.get("weight_scale")}
+    elif quant_format == "mxfp8":
+        params = {"scale": scales.get("weight_scale")}
+    elif quant_format == "nvfp4":
+        params = {
+            "scale": scales.get("weight_scale_2"),
+            "block_scale": scales.get("weight_scale"),
+        }
+    else:
+        raise ValueError(f"Unsupported ComfyUI quantization format: {quant_format}")
+
+    missing = [name for name, value in params.items() if value is None]
+    if missing:
+        raise ValueError(f"Missing ComfyUI quantization scale(s): {missing}")
+
+    params = layout_cls.Params(
+        **params,
+        orig_dtype=dtype,
+        orig_shape=tuple(orig_shape),
+    )
+    qweight = quant_ops.QuantizedTensor(weight.to(dtype=qconfig["storage_t"]), layout_type, params)
+    return qweight.dequantize().to(dtype=dtype)
+
+
+def _convert_comfy_krea2_state_dict(
+    state_dict: dict,
+    dtype: torch.dtype,
+    expected_shapes: dict[str, torch.Size],
+    mmdit_config: dict,
+    comfy_path: Optional[str] = None,
+) -> dict:
+    diffusers_key_map = _krea2_diffusers_to_ai_toolkit_map(mmdit_config)
+    normalized = {
+        _normalize_krea2_checkpoint_key(k, diffusers_key_map): v
+        for k, v in state_dict.items()
+    }
+
+    quant_layers = {
+        k[: -len(".comfy_quant")]: _decode_comfy_quant(v)
+        for k, v in normalized.items()
+        if k.endswith(".comfy_quant")
+    }
+    if not quant_layers:
+        return normalized
+
+    converted = {}
+    quant_aux_suffixes = (".comfy_quant", ".weight_scale", ".weight_scale_2", ".input_scale")
+    for key, value in normalized.items():
+        if key.endswith(quant_aux_suffixes):
+            continue
+        if key.endswith(".weight"):
+            layer = key[: -len(".weight")]
+            if layer in quant_layers:
+                scales = {
+                    name: normalized.get(f"{layer}.{name}")
+                    for name in ("weight_scale", "weight_scale_2")
+                }
+                converted[key] = _dequantize_comfy_weight(
+                    value,
+                    quant_layers[layer],
+                    scales,
+                    expected_shapes.get(key, value.shape),
+                    dtype,
+                    comfy_path,
+                )
+                continue
+        converted[key] = value
+
+    return converted
+
+
 class Krea2Model(BaseModel):
     arch = "krea2"
 
@@ -184,14 +360,25 @@ class Krea2Model(BaseModel):
         # Build on meta, then materialize straight from the checkpoint.
         with torch.device("meta"):
             transformer = SingleStreamDiT(config)
+        expected_shapes = {
+            k: v.shape
+            for k, v in transformer.state_dict().items()
+        }
 
         self.print_and_status_update("  - fetching transformer weights")
         state_dict = _load_mmdit_state_dict(
             self.model_config.name_or_path,
             self.model_config.model_kwargs.get("checkpoint_filename", None),
         )
+        state_dict = _convert_comfy_krea2_state_dict(
+            state_dict,
+            dtype,
+            expected_shapes,
+            mmdit_kwargs,
+            self.model_config.model_kwargs.get("comfy_path", None),
+        )
         state_dict = {
-            k.replace("model.diffusion_model.", ""): (v.to(dtype) if v.is_floating_point() else v)
+            k : (v.to(dtype) if v.is_floating_point() else v)
             for k, v in state_dict.items()
         }
         self.print_and_status_update("  - loading transformer state dict")
