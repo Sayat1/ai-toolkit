@@ -244,6 +244,8 @@ def _dequantize_comfy_weight(
             "scale": scales.get("weight_scale_2"),
             "block_scale": scales.get("weight_scale"),
         }
+    elif quant_format == "int8_tensorwise":
+        params = {"scale": scales.get("weight_scale")}
     else:
         raise ValueError(f"Unsupported ComfyUI quantization format: {quant_format}")
 
