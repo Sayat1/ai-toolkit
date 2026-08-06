@@ -701,9 +701,10 @@ class Krea2Model(BaseModel):
             network.merge_in(merge_weight=weight)
             network.is_merged_in = True
 
-            # deactivate lora during training
-            network.multiplier = -1.0
-            network.is_active = False
+            #내부 network가 gc에 의해 해제되는것 방지
+            if not hasattr(self, 'merged_networks'):
+                self.merged_networks = []
+            self.merged_networks.append(network)
             flush()
 
     def get_quantization_exclude_modules(self):
