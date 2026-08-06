@@ -700,6 +700,10 @@ class Krea2Model(BaseModel):
 
             network.merge_in(merge_weight=weight)
             network.is_merged_in = True
+
+            # deactivate lora during training
+            network.multiplier = -1.0
+            network.is_active = False
             flush()
 
     def get_quantization_exclude_modules(self):
