@@ -568,7 +568,139 @@ class Krea2Model(BaseModel):
 
         # tell the model to invert assistant on inference since we want remove lora effects
         self.invert_assistant_lora = True
-    
+
+    def load_lora(self, lora_path: str) -> dict:
+        resolved_path = lora_path
+        if not os.path.exists(resolved_path):
+            # assume it is a hub path
+            lora_splits = resolved_path.split("/")
+            if len(lora_splits) >= 2:
+                repo_id = "/".join(lora_splits[:2])
+                filename = (
+                    lora_splits[2]
+                    if len(lora_splits) > 2
+                    else "pytorch_lora_weights.safetensors"
+                )
+                try:
+                    resolved_path = huggingface_hub.hf_hub_download(
+                        repo_id=repo_id,
+                        filename=filename,
+                        token=HF_TOKEN,
+                    )
+                except Exception:
+                    try:
+                        resolved_path = huggingface_hub.hf_hub_download(
+                            repo_id=repo_id,
+                            filename="adapter_model.safetensors",
+                            token=HF_TOKEN,
+                        )
+                    except Exception as e:
+                        raise ValueError(
+                            f"Failed to download LoRA from {lora_path}: {e}"
+                        )
+            else:
+                raise ValueError(
+                    f"LoRA path {lora_path} is not a valid local path or hub path."
+                )
+        elif os.path.isdir(resolved_path):
+            candidates = [
+                f for f in os.listdir(resolved_path) if f.endswith(".safetensors")
+            ]
+            if len(candidates) == 1:
+                resolved_path = os.path.join(resolved_path, candidates[0])
+            elif "pytorch_lora_weights.safetensors" in candidates:
+                resolved_path = os.path.join(
+                    resolved_path, "pytorch_lora_weights.safetensors"
+                )
+            elif "adapter_model.safetensors" in candidates:
+                resolved_path = os.path.join(
+                    resolved_path, "adapter_model.safetensors"
+                )
+            else:
+                raise FileNotFoundError(
+                    f"Could not pick a LoRA safetensors file in directory {resolved_path}"
+                )
+
+        lora_state_dict = load_file(resolved_path)
+        lora_state_dict = self.convert_lora_weights_before_load(lora_state_dict)
+        return lora_state_dict
+
+    def load_and_merge_lora(
+        self,
+        transformer: SingleStreamDiT,
+        lora_path: Union[str, List[str]],
+        weight: float = 1.0,
+    ):
+        if isinstance(lora_path, str):
+            lora_paths = [lora_path]
+        else:
+            lora_paths = lora_path
+
+        for current_path in lora_paths:
+            self.print_and_status_update(f"Loading external LoRA from {current_path}")
+            lora_state_dict = self.load_lora(current_path)
+
+            # detect rank from weights
+            dim = 4
+            is_lokr = False
+            for k, v in lora_state_dict.items():
+                if (
+                    k.endswith("lora_A.weight")
+                    or k.endswith("lora_down.weight")
+                    or ".lora_down." in k
+                ):
+                    dim = int(v.shape[0])
+                    break
+                if(
+                    k.endswith("lokr_w1")
+                ):
+                    dim = int(v.shape[0])
+                    is_lokr = True
+                    break
+
+            if is_lokr:
+                network_config = {
+                    "type": "lokr",
+                    "linear": 999999999,
+                    "linear_alpha": 999999999,
+                    "lokr_full_rank": True,
+                    "lokr_factor": dim,
+                    "transformer_only": True,
+                }
+            else:
+                network_config = {
+                    "type": "lora",
+                    "linear": dim,
+                    "linear_alpha": dim,
+                    "transformer_only": True,
+                }
+            network_config = NetworkConfig(**network_config)
+
+            LoRASpecialNetwork.LORA_PREFIX_UNET = "lora_transformer"
+            network = LoRASpecialNetwork(
+                text_encoder=None,
+                unet=transformer,
+                lora_dim=network_config.linear,
+                multiplier=weight,
+                alpha=network_config.linear_alpha,
+                train_unet=True,
+                train_text_encoder=False,
+                network_config=network_config,
+                network_type=network_config.type,
+                transformer_only=network_config.transformer_only,
+                is_transformer=True,
+                target_lin_modules=self.target_lora_modules,
+            )
+            network.apply_to(None, transformer, apply_text_encoder=False, apply_unet=True)
+            self.print_and_status_update(f"Merging external LoRA ({current_path}) into transformer")
+            network.force_to(self.device_torch, dtype=self.torch_dtype)
+            network._update_torch_multiplier()
+            network.load_weights(lora_state_dict)
+
+            network.merge_in(merge_weight=weight)
+            network.is_merged_in = True
+            flush()
+
     def get_quantization_exclude_modules(self):
         # sensitive modules kept in full precision (fnmatch patterns on module
         # names within SingleStreamDiT):
@@ -599,6 +731,11 @@ class Krea2Model(BaseModel):
             # set qtype to be float8 if it is qfloat8
             if self.model_config.qtype == "qfloat8":
                 self.model_config.qtype = "float8"
+
+        # load external lora if specified
+        lora_path = self.model_config.lora_path or self.model_config.model_kwargs.get("lora_path", None)
+        if lora_path is not None:
+            self.load_and_merge_lora(transformer, lora_path)
 
         if self.model_config.quantize:
             self.print_and_status_update("Quantizing transformer")
