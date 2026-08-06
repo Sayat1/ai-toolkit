@@ -628,7 +628,7 @@ class Krea2Model(BaseModel):
     def load_and_merge_lora(
         self,
         transformer: SingleStreamDiT,
-        lora_path: Union[str, List[str]],
+        lora_path: str,
         weight: float = 1.0,
     ):
         if isinstance(lora_path, str):
