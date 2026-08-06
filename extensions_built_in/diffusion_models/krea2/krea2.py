@@ -690,6 +690,7 @@ class Krea2Model(BaseModel):
                 transformer_only=network_config.transformer_only,
                 is_transformer=True,
                 target_lin_modules=self.target_lora_modules,
+                is_lorm=False,
             )
             network.apply_to(None, transformer, apply_text_encoder=False, apply_unet=True)
             self.print_and_status_update(f"Merging external LoRA ({current_path}) into transformer")
