@@ -324,6 +324,16 @@ export default function SimpleJob({
                 placeholder=""
               />
             )}
+            {modelArch?.customModelSelectOptions?.map(customOption => (
+              <SelectInput
+                key={customOption.label}
+                label={customOption.label}
+                value={customOption.getValue(jobConfig) ?? ''}
+                doc={customOption.doc}
+                onChange={value => customOption.onChange(value, jobConfig, setJobConfig)}
+                options={customOption.options}
+              />
+            ))}
             {modelArch?.modelNotes && (
               <div className="pt-2">
                 <button
@@ -915,7 +925,7 @@ export default function SimpleJob({
                         if (value) {
                           setJobConfig(true, 'config.process[0].train.do_guidance_loss');
                           if (!jobConfig.config.process[0].train.guidance_loss_target) {
-                            setJobConfig(3.0, 'config.process[0].train.guidance_loss_target');
+                            setJobConfig(4.0, 'config.process[0].train.guidance_loss_target');
                           }
                         } else {
                           setJobConfig(undefined, 'config.process[0].train.do_guidance_loss');
@@ -928,7 +938,7 @@ export default function SimpleJob({
                         <NumberInput
                           label="Guidance Loss Target"
                           docKey={'train.guidance_loss_target'}
-                          value={(jobConfig.config.process[0].train.guidance_loss_target as number) || 3.0}
+                          value={(jobConfig.config.process[0].train.guidance_loss_target as number) || 4.0}
                           onChange={value => setJobConfig(value, 'config.process[0].train.guidance_loss_target')}
                           placeholder="eg. 3.0"
                           min={0}
@@ -1222,6 +1232,17 @@ export default function SimpleJob({
                         placeholder="eg. 1"
                         docKey={'dataset.num_repeats'}
                       />
+                      <NumberInput
+                        label="Batch Size"
+                        value={dataset.batch_size ?? null}
+                        className="pt-2"
+                        onChange={value =>
+                          setJobConfig(value == null ? undefined : value, `config.process[0].datasets[${i}].batch_size`)
+                        }
+                        placeholder={`${jobConfig.config.process[0].train.batch_size}`}
+                        min={1}
+                        allowEmpty
+                      />
                     </div>
                     <div>
                       <TextInput
@@ -1233,6 +1254,7 @@ export default function SimpleJob({
                       <NumberInput
                         label="Caption Dropout Rate"
                         className="pt-2"
+                        docKey="datasets.caption_dropout_rate"
                         value={dataset.caption_dropout_rate}
                         onChange={value => setJobConfig(value, `config.process[0].datasets[${i}].caption_dropout_rate`)}
                         placeholder="eg. 0.05"
