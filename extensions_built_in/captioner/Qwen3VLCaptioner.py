@@ -137,7 +137,7 @@ class Qwen3VLCaptioner(BaseCaptioner):
                 prompt = WD_PROMPT_TEMPLATE.format(tags=", ".join(candidate_tags))
             else:
                 prompt = self.caption_config.caption_prompt
-
+            print(f"prompt : {prompt}")
             messages = [
                 {
                     "role": "user",
