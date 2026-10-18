@@ -136,7 +136,9 @@ class Qwen3VLCaptioner(BaseCaptioner):
                 candidate_tags = self.load_candidate_tags(file_path)
                 prompt = WD_PROMPT_TEMPLATE.format(tags=", ".join(candidate_tags))
             else:
-                prompt = self.caption_config.caption_prompt
+                #prompt = self.caption_config.caption_prompt
+                prompt = self.resolve_prompt(self.caption_config.caption_prompt, file_path)
+            
             print(f"prompt : {prompt}")
             messages = [
                 {
